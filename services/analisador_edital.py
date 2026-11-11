@@ -1,13 +1,13 @@
-"""Resumo do edital e análise de compatibilidade com o perfil do candidato."""
+# Resumo do edital e análise de compatibilidade com o perfil do candidato
 import json
 import re
+from datetime import date
 
 import openai
 
 import config
 from core.rag import _get_llm, buscar, montar_contexto
 
-# Consultas usadas para recuperar o contexto de cada tópico do resumo
 CONSULTAS_RESUMO = {
     "identificacao": "instituição, programa de pós-graduação, curso, número do edital",
     "vagas_bolsas": "número de vagas, modalidades e quantidade de bolsas, valor da bolsa",
@@ -42,7 +42,6 @@ def _extrair_json(texto: str) -> dict:
 
 
 def _chamar_llm_json(system: str, user: str, tentativas: int = 3) -> dict:
-    """Chama o LLM e devolve o JSON da resposta, com diagnóstico de falhas."""
     ultimo_erro: Exception = RuntimeError("Falha ao obter resposta do LLM")
     desativar = config.DESATIVAR_RACIOCINIO
 
@@ -81,7 +80,6 @@ def _chamar_llm_json(system: str, user: str, tentativas: int = 3) -> dict:
 
 
 def _contexto_para(colecao: str, consultas: list[str]) -> list[dict]:
-    """Junta trechos de várias consultas, sem repetir."""
     vistos, trechos = set(), []
     for q in consultas:
         for t in buscar(colecao, q, k=config.K_POR_CONSULTA):
@@ -92,9 +90,8 @@ def _contexto_para(colecao: str, consultas: list[str]) -> list[dict]:
     return trechos
 
 
-# ---------- Resumo ----------
+# Resumo 
 
-# Usa .format(nivel=...), por isso as chaves do JSON estão duplicadas ({{ }})
 SYSTEM_RESUMO = """Você extrai informações estruturadas de editais de pós-graduação.
 Use SOMENTE os trechos fornecidos. Se algo não estiver nos trechos, use "Não informado no edital".
 
@@ -127,15 +124,14 @@ def resumir_edital(colecao: str, nivel: str = "Mestrado") -> dict:
     return _chamar_llm_json(SYSTEM_RESUMO.format(nivel=nivel), user)
 
 
-# ---------- Compatibilidade ----------
+# Compatibilidade 
 
-# Sem .format: chaves simples
 SYSTEM_COMPAT = """Você compara o perfil de um candidato com os requisitos FORMAIS de ELEGIBILIDADE e DOCUMENTAÇÃO de um edital de pós-graduação.
 
 Regras:
 1. Use SOMENTE os trechos do edital e os dados do perfil informados.
 2. Liste apenas requisitos que o candidato precisa cumprir para se inscrever: titulação, prazos, documentos, taxa, língua, vínculo, ações afirmativas.
-3. NÃO liste fórmulas de nota, critérios de pontuação, pesos, desempate ou etapas de avaliação.
+3. NÃO liste critérios de PONTUAÇÃO ou classificação: fórmulas de nota, pesos, desempate, etapas de avaliação, nem itens que apenas somam pontos (ex.: vínculo profissional, curso lato sensu, produção científica, histórico). Se o item é opcional ou só gera pontos, não o inclua.
 4. Classifique cada item como:
    - "atende": o perfil comprova claramente o cumprimento;
    - "nao_atende": o perfil claramente não cumpre;
@@ -145,6 +141,7 @@ Regras:
 6. Avalie apenas requisitos do nível do perfil. Respeite o que o edital diz para cada nível; não atribua requisito de um nível ao outro.
 7. Justificativa curta (uma frase), citando só a página no formato (p. X). Nunca cite "Trecho N".
 8. NÃO estime chances de aprovação nem de obtenção de bolsa.
+9. Se um prazo do edital já terminou em relação à DATA DE HOJE, classifique como "confirmar" e diga na justificativa que o prazo foi encerrado em DD/MM/AAAA.
 
 Responda APENAS com um objeto JSON, sem texto fora dele, neste formato:
 {
@@ -171,13 +168,13 @@ def analisar_compatibilidade(colecao: str, perfil: dict) -> dict:
     trechos = _contexto_para(colecao, consultas)
     perfil_txt = "\n".join(f"- {k}: {v}" for k, v in perfil.items())
     user = (
+        f"DATA DE HOJE: {date.today():%d/%m/%Y}\n\n"
         f"TRECHOS DO EDITAL:\n{montar_contexto(trechos)}\n\n"
         f"PERFIL DO CANDIDATO:\n{perfil_txt}\n\n"
         "Gere o JSON da análise."
     )
     resultado = _chamar_llm_json(SYSTEM_COMPAT, user)
 
-    # Validação: garante formato e status esperados pela interface
     itens = []
     for item in resultado.get("itens", []):
         if not isinstance(item, dict):

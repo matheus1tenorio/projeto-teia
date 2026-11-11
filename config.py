@@ -24,12 +24,13 @@ EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 PREFIXO_DOCUMENTO = "passage: "
 PREFIXO_PERGUNTA = "query: "
 
-# Chunking 
+# Chunking
 CHUNK_TOKENS = 300
 CHUNK_OVERLAP = 50
 
 # Recuperação
-TOP_K = 5
+TOP_K = 5          # chat com um edital
+TOP_K_MULTI = 8    # chat com todos os editais (mais trechos, de editais diferentes)
 
 # Geração (chat)
 TEMPERATURA = 0.2

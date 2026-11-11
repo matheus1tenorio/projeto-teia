@@ -38,6 +38,7 @@ def processar_pdf(caminho_pdf: str | Path) -> list[Chunk]:
     paginas = extrair_paginas(caminho_pdf)
     if not paginas:
         raise ValueError(
+            "Nenhum texto extraído do PDF. Ele pode ser um documento escaneado (imagem)."
         )
 
     chunks: list[Chunk] = []
