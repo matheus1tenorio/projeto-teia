@@ -7,6 +7,7 @@ Rodar na EC2:       streamlit run app.py --server.address 0.0.0.0 --server.port 
 
 import hmac
 import os
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -24,6 +25,16 @@ STATUS_INFO = {
     "confirmar": ("⚠️ Precisa de confirmação", st.warning),
     "nao_se_aplica": ("➖ Não se aplica ao seu perfil", st.info),
 }
+DOCUMENTOS_OPCOES = [
+    "Diploma ou comprovante de conclusão da graduação",
+    "Histórico escolar completo",
+    "RG e CPF",
+    "Certidão de quitação eleitoral",
+    "Currículo Lattes atualizado",
+    "Comprovante de proficiência em língua estrangeira",
+    "Pré-projeto de pesquisa",
+    "Comprovante de pagamento da taxa ou de isenção",
+]
 
 
 # Acesso
@@ -45,7 +56,7 @@ def _checar_senha() -> bool:
     return False
 
 
-# Helpers de exibição 
+# Helpers de exibição
 
 def _como_lista(valor) -> list:
     if not valor:
@@ -90,7 +101,8 @@ def _mostrar_resumo(r: dict) -> None:
 def _mostrar_item(i: dict, caixa) -> None:
     paginas = ", ".join(str(p) for p in _como_lista(i.get("paginas")))
     fonte = f" _(p. {paginas})_" if paginas else ""
-    caixa(f"**{i.get('requisito', '')}**\n\n{i.get('justificativa', '')}{fonte}")
+    justificativa = re.sub(r"\s*\(p\.[^)]*\)", "", i.get("justificativa", "")).strip()
+    caixa(f"**{i.get('requisito', '')}**\n\n{justificativa}{fonte}")
 
 
 def _contar(itens: list[dict]) -> dict:
@@ -112,7 +124,7 @@ def _mostrar_compatibilidade(r: dict) -> None:
         grupo = [i for i in itens if i["status"] == chave]
         if not grupo:
             continue
-        if chave == "nao_se_aplica": 
+        if chave == "nao_se_aplica":
             with st.expander(f"{rotulo} ({len(grupo)})"):
                 for i in grupo:
                     _mostrar_item(i, caixa)
@@ -123,7 +135,6 @@ def _mostrar_compatibilidade(r: dict) -> None:
 
 
 def _mostrar_comparativo(resultados: dict[str, dict]) -> None:
-    """Mesmo perfil analisado em todos os editais: tabela-resumo + detalhe de um edital."""
     linhas = []
     for nome, r in resultados.items():
         if "erro" in r:
@@ -145,10 +156,9 @@ def _mostrar_comparativo(resultados: dict[str, dict]) -> None:
         _mostrar_compatibilidade(r)
 
 
-# Estado e indexação 
+# Estado e indexação
 
 def _carregar_editais(forcar: bool = False) -> dict[str, str]:
-    """{arquivo: id_da_colecao}. Indexa a pasta editais/ (já indexados são reaproveitados)."""
     if forcar or "editais" not in st.session_state:
         with st.spinner("Preparando a base de editais (a primeira vez pode demorar)..."):
             editais, erros = indexar_pasta()
@@ -188,13 +198,17 @@ def _perfil_do_formulario(**campos) -> dict:
         "proficiencia_idioma": campos["idioma"] or "não informada",
         "vinculo_empregaticio": campos["vinculo"],
         "acoes_afirmativas": campos["afirmativas"],
+        "maior_titulacao": campos["titulacao"],
+        "nacionalidade": campos["nacionalidade"],
+        "dedicacao_exclusiva": campos["dedicacao"],
+        "documentos_que_possui": ", ".join(campos["documentos"]) or "nenhum marcado",
     }
     if campos["extra"].strip():
         perfil["outras_informacoes"] = campos["extra"].strip()
     return perfil
 
 
-#  Interface 
+# Interface
 
 def main() -> None:
     if not _checar_senha():
@@ -247,7 +261,7 @@ def main() -> None:
         ["📄 Resumo", "✅ Compatibilidade", "💬 Chat com os editais"]
     )
 
-    # Resumo 
+    # Resumo
     with aba_resumo:
         st.caption(f"Edital: **{Path(nome_ativo).stem}**")
         nivel_resumo = st.radio("Nível", ["Mestrado", "Doutorado"], horizontal=True, key="nivel_resumo")
@@ -261,7 +275,7 @@ def main() -> None:
         if chave in st.session_state:
             _mostrar_resumo(st.session_state[chave])
 
-    # Compatibilidade 
+    # Compatibilidade
     with aba_compat:
         st.markdown("Preencha seu perfil para comparar com os requisitos do edital.")
         with st.form("perfil"):
@@ -277,6 +291,10 @@ def main() -> None:
                 "Concorre a ações afirmativas?",
                 ["Não", "Sim (negros, indígenas, quilombolas, PcD, trans)", "Prefiro não informar"],
             )
+            titulacao = c1.selectbox("Maior titulação concluída", ["Graduação", "Especialização", "Mestrado", "Doutorado"])
+            nacionalidade = c2.selectbox("Nacionalidade", ["Brasileira", "Estrangeira"])
+            dedicacao = c1.selectbox("Pode se dedicar com exclusividade à pós-graduação?", ["Sim", "Não", "Não sei"])
+            documentos = st.multiselect("Documentos que você já possui", DOCUMENTOS_OPCOES)
             extra = st.text_area("Outras informações relevantes (opcional)", height=70)
             b1, b2 = st.columns(2)
             enviar = b1.form_submit_button(f"Analisar em: {Path(nome_ativo).stem}", type="primary")
@@ -285,9 +303,12 @@ def main() -> None:
         chave_c = ("compat", colecao)
         chave_todos = ("compat_todos", tuple(sorted(editais.values())))
         if enviar or enviar_todos:
-            perfil = _perfil_do_formulario(nivel=nivel, curso=curso, situacao=situacao,
-                                           instituicao=instituicao, ano=ano, idioma=idioma,
-                                           vinculo=vinculo, afirmativas=afirmativas, extra=extra)
+            perfil = _perfil_do_formulario(
+                nivel=nivel, curso=curso, situacao=situacao, instituicao=instituicao,
+                ano=ano, idioma=idioma, vinculo=vinculo, afirmativas=afirmativas,
+                titulacao=titulacao, nacionalidade=nacionalidade, dedicacao=dedicacao,
+                documentos=documentos, extra=extra,
+            )
             if enviar:
                 with st.spinner("Comparando seu perfil com o edital..."):
                     try:
@@ -316,7 +337,7 @@ def main() -> None:
         if chave_c in st.session_state or chave_todos in st.session_state:
             st.caption("Resultado preliminar: confirme cada requisito no edital oficial.")
 
-    # Chat 
+    # Chat
     with aba_chat:
         escopo = st.radio(
             "Perguntar em", ["Edital ativo", "Todos os editais"], horizontal=True,

@@ -1,4 +1,4 @@
-# Resumo do edital e análise de compatibilidade com o perfil do candidato
+"""Resumo do edital e análise de compatibilidade com o perfil do candidato."""
 import json
 import re
 from datetime import date
@@ -8,6 +8,7 @@ import openai
 import config
 from core.rag import _get_llm, buscar, montar_contexto
 
+# Consultas usadas para recuperar o contexto de cada tópico do resumo
 CONSULTAS_RESUMO = {
     "identificacao": "instituição, programa de pós-graduação, curso, número do edital",
     "vagas_bolsas": "número de vagas, modalidades e quantidade de bolsas, valor da bolsa",
@@ -139,9 +140,12 @@ Regras:
    - "nao_se_aplica": o requisito só vale para quem está em outra situação (outro nível, ações afirmativas, vaga de servidor, estrangeiro etc.).
 5. Ter concluído um curso NÃO comprova posse do diploma ou histórico: use "confirmar".
 6. Avalie apenas requisitos do nível do perfil. Respeite o que o edital diz para cada nível; não atribua requisito de um nível ao outro.
-7. Justificativa curta (uma frase), citando só a página no formato (p. X). Nunca cite "Trecho N".
+7. Justificativa curta (uma frase). NÃO escreva páginas na justificativa: elas vão só no campo "paginas". Nunca cite "Trecho N".
 8. NÃO estime chances de aprovação nem de obtenção de bolsa.
-9. Se um prazo do edital já terminou em relação à DATA DE HOJE, classifique como "confirmar" e diga na justificativa que o prazo foi encerrado em DD/MM/AAAA.
+9. Prazos de inscrição, taxa ou isenção que já terminaram em relação à DATA DE HOJE: classifique como "nao_atende" e escreva "prazo encerrado em DD/MM/AAAA".
+10. NUNCA atribua ao perfil informações que ele não contém. Se o perfil não menciona algo, escreva "o perfil não informa".
+11. Use o campo documentos_que_possui: documento marcado = o candidato possui ("atende"); documento obrigatório não marcado = "confirmar", dizendo que não foi marcado como possuído.
+12. Só liste um item se o edital o EXIGE. Não crie requisitos negativos (ex.: "não ser candidato de ações afirmativas") nem a partir de condições opcionais.
 
 Responda APENAS com um objeto JSON, sem texto fora dele, neste formato:
 {
@@ -175,6 +179,7 @@ def analisar_compatibilidade(colecao: str, perfil: dict) -> dict:
     )
     resultado = _chamar_llm_json(SYSTEM_COMPAT, user)
 
+    # Validação: garante formato e status esperados pela interface
     itens = []
     for item in resultado.get("itens", []):
         if not isinstance(item, dict):
